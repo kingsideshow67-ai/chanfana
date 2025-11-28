@@ -1,22 +1,34 @@
-import 'isomorphic-fetch'
-import { buildRequest, findError } from '../utils'
-import { ToDoList, todoRouter } from '../router'
+import { AutoRouter } from "itty-router";
+import { describe, expect, it } from "vitest";
+import { fromIttyRouter } from "../../src";
+import { ToDoGet, todoRouter } from "../router";
+import { buildRequest } from "../utils";
 
-describe('openapi schema', () => {
-  test('custom content type', async () => {
-    const request = await todoRouter.handle(
-      buildRequest({ method: 'GET', path: '/openapi.json' })
-    )
-    const resp = await request.json()
-    const respSchema = resp.paths['/contenttype'].get.responses[200]
+describe("openapi schema", () => {
+  it("custom content type", async () => {
+    const request = await todoRouter.fetch(buildRequest({ method: "GET", path: "/openapi.json" }));
+    const resp = await request.json();
+    const respSchema = resp.paths["/contenttype"].get.responses[200];
 
-    expect(respSchema.contentType).toBeUndefined()
+    expect(respSchema.contentType).toBeUndefined();
     expect(respSchema.content).toEqual({
-      'text/csv': {
+      "text/csv": {
         schema: {
-          type: 'string',
+          type: "string",
         },
       },
-    })
-  })
-})
+    });
+  });
+
+  it("with base defined", async () => {
+    const router = fromIttyRouter(AutoRouter(), {
+      base: "/api",
+    });
+    router.get("/todo", ToDoGet);
+
+    const request = await router.fetch(buildRequest({ method: "GET", path: "/api/openapi.json" }));
+    const resp = await request.json();
+
+    expect(Object.keys(resp.paths)[0]).toEqual("/api/todo");
+  });
+});

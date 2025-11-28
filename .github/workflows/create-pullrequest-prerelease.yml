@@ -1,44 +1,29 @@
-name: Create Pull Request Prerelease
-
-on: pull_request
+name: Create Prerelease
+on:
+  workflow_dispatch:
+  pull_request: {}
 
 jobs:
   build:
     if: ${{ github.repository_owner == 'cloudflare' }}
-    name: Build & Publish a Prerelease to the Adhoc Registry
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Use Node.js 20.6
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20.6
-          cache: 'npm' # cache ~/.npm in case 'npm ci' needs to run
-
-      - name: Set RELEASE_VERSION
-        run: echo "RELEASE_VERSION=0.0.0-${GITHUB_SHA:0:7}" >> $GITHUB_ENV
-
-      - name: Apply new version
-        run: node config/preparePublish.mjs
-
+          node-version: 24.x
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
       - name: Install modules
         run: npm install
-
-      - name: Build
-        run: npm run build
-        env:
-          NODE_ENV: 'production'
-
-      - name: Create package
-        run: npm pack
-
-      - name: Upload packaged itty-router-openapi artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: npm-package-itty-router-openapi-${{ github.event.number }} # encode the PR number into the artifact name
-          path: cloudflare-itty-router-openapi-*.tgz
+      - name: Run build
+        run: npm run lint && npm run build
+      - name: Run tests
+        run: npm run test
+      - name: Publish to npm
+        run: npx pkg-pr-new publish

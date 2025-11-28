@@ -1,123 +1,102 @@
-import 'isomorphic-fetch'
-
-import { OpenAPIRoute } from '../../src/route'
-import { OpenAPIRouter } from '../../src/openapi'
-import { buildRequest } from '../utils'
-import { OpenAPIRouteSchema } from '../../src'
+import { AutoRouter } from "itty-router";
+import { describe, expect, it } from "vitest";
+import { fromIttyRouter } from "../../src";
+import { OpenAPIRoute } from "../../src/route";
+import { buildRequest } from "../utils";
 
 class EndpointWithoutOperationId extends OpenAPIRoute {
-  static schema = {
-    summary: 'Get a single ToDo',
+  schema = {
+    summary: "Get a single ToDo",
     responses: {},
-  }
+  };
 
-  async handle(request: Request, env: any, context: any, data: any) {
+  async handle(_request: Request, _env: any, _context: any) {
     return {
-      msg: 'EndpointWithoutOperationId',
-    }
+      msg: "EndpointWithoutOperationId",
+    };
   }
 }
 
 class EndpointWithOperationId extends OpenAPIRoute {
-  static schema: OpenAPIRouteSchema = {
+  schema = {
     responses: {},
-    operationId: 'get_my_todo',
-    summary: 'Get a single ToDo',
-  }
+    operationId: "get_my_todo",
+    summary: "Get a single ToDo",
+  };
 
-  async handle(request: Request, env: any, context: any, data: any) {
+  async handle(_request: Request, _env: any, _context: any) {
     return {
-      msg: 'EndpointWithOperationId',
-    }
+      msg: "EndpointWithOperationId",
+    };
   }
 }
 
-describe('routerOptions', () => {
-  it('generate operation ids false', async () => {
+describe("routerOptions", () => {
+  it("generate operation ids false", async () => {
     const t = () => {
-      const router = OpenAPIRouter({
+      const router = fromIttyRouter(AutoRouter(), {
         generateOperationIds: false,
-      })
-      router.get('/todo', EndpointWithoutOperationId)
-    }
+      });
+      router.get("/todo", EndpointWithoutOperationId);
+    };
 
-    expect(t).toThrow("Route /todo don't have operationId set!")
-  })
+    expect(t).toThrow("Route /todo don't have operationId set!");
+  });
 
-  it('generate operation ids true and unset', async () => {
-    const routerTrue = OpenAPIRouter({
+  it("generate operation ids true and unset", async () => {
+    const routerTrue = fromIttyRouter(AutoRouter(), {
       generateOperationIds: true,
-    })
-    routerTrue.get('/todo', EndpointWithoutOperationId)
+    });
+    routerTrue.get("/todo", EndpointWithoutOperationId);
 
-    if (
-      routerTrue.schema.paths &&
-      routerTrue.schema.paths['/todo'] &&
-      routerTrue.schema.paths['/todo'].get
-    ) {
-      expect(routerTrue.schema.paths['/todo'].get.operationId).toEqual(
-        'get_EndpointWithoutOperationId'
-      )
+    if (routerTrue.schema.paths?.["/todo"]?.get) {
+      expect(routerTrue.schema.paths["/todo"].get.operationId).toEqual("get_EndpointWithoutOperationId");
     } else {
-      throw new Error('/todo not found in schema')
+      throw new Error("/todo not found in schema");
     }
 
-    const routerUnset = OpenAPIRouter()
-    routerUnset.get('/todo', EndpointWithoutOperationId)
+    const routerUnset = fromIttyRouter(AutoRouter());
+    routerUnset.get("/todo", EndpointWithoutOperationId);
 
-    if (
-      routerUnset.schema.paths &&
-      routerUnset.schema.paths['/todo'] &&
-      routerUnset.schema.paths['/todo'].get
-    ) {
-      expect(routerUnset.schema.paths['/todo'].get.operationId).toEqual(
-        'get_EndpointWithoutOperationId'
-      )
+    if (routerUnset.schema.paths?.["/todo"]?.get) {
+      expect(routerUnset.schema.paths["/todo"].get.operationId).toEqual("get_EndpointWithoutOperationId");
     } else {
-      throw new Error('/todo not found in schema')
+      throw new Error("/todo not found in schema");
     }
-  })
+  });
 
-  it('generate operation ids true on endpoint with operation id', async () => {
-    const router = OpenAPIRouter({
+  it("generate operation ids true on endpoint with operation id", async () => {
+    const router = fromIttyRouter(AutoRouter(), {
       generateOperationIds: true,
-    })
-    router.get('/todo', EndpointWithOperationId)
+    });
+    router.get("/todo", EndpointWithOperationId);
 
-    if (
-      router.schema.paths &&
-      router.schema.paths['/todo'] &&
-      router.schema.paths['/todo'].get
-    ) {
-      expect(router.schema.paths['/todo'].get.operationId).toEqual(
-        'get_my_todo'
-      )
+    if (router.schema.paths?.["/todo"]?.get) {
+      expect(router.schema.paths["/todo"].get.operationId).toEqual("get_my_todo");
     } else {
-      throw new Error('/todo not found in schema')
+      throw new Error("/todo not found in schema");
     }
-  })
+  });
 
-  it('with base empty', async () => {
-    const router = OpenAPIRouter()
-    router.get('/todo', EndpointWithOperationId)
+  it("with base empty", async () => {
+    const router = fromIttyRouter(AutoRouter());
+    router.get("/todo", EndpointWithOperationId);
 
-    const request = await router.handle(
-      buildRequest({ method: 'GET', path: '/todo' })
-    )
-    const resp = await request.json()
+    const request = await router.fetch(buildRequest({ method: "GET", path: "/todo" }));
+    const resp = await request.json();
 
-    expect(resp.msg).toEqual('EndpointWithOperationId')
-  })
+    expect(resp.msg).toEqual("EndpointWithOperationId");
+  });
 
-  it('with base defined', async () => {
-    const router = OpenAPIRouter({ base: '/api' })
-    router.get('/todo', EndpointWithOperationId)
+  it("with base defined", async () => {
+    const router = fromIttyRouter(AutoRouter({ base: "/api" }), {
+      base: "/api",
+    });
+    router.get("/todo", EndpointWithOperationId);
 
-    const request = await router.handle(
-      buildRequest({ method: 'GET', path: '/api/todo' })
-    )
-    const resp = await request.json()
+    const request = await router.fetch(buildRequest({ method: "GET", path: "/api/todo" }));
+    const resp = await request.json();
 
-    expect(resp.msg).toEqual('EndpointWithOperationId')
-  })
-})
+    expect(resp.msg).toEqual("EndpointWithOperationId");
+  });
+});

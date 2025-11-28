@@ -1,67 +1,73 @@
-import 'isomorphic-fetch'
+import { AutoRouter } from "itty-router";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { fromIttyRouter } from "../../src";
+import { OpenAPIRoute } from "../../src/route";
+import { buildRequest } from "../utils";
 
-import { OpenAPIRoute } from '../../src/route'
-import { Path } from '../../src/parameters'
-import { OpenAPIRouter } from '../../src/openapi'
-import { buildRequest } from '../utils'
-import { z } from 'zod'
-
-const zodRouter = OpenAPIRouter()
+const zodRouter = fromIttyRouter(AutoRouter());
 
 class ToDoGet extends OpenAPIRoute {
-  static schema = {
-    tags: ['ToDo'],
-    summary: 'Get a single ToDo',
-    parameters: {
-      id: Path(z.number()),
-    },
-    requestBody: z.object({
-      title: z.string(),
-      description: z.string(), //.optional(),
-      type: z.nativeEnum({
-        nextWeek: 'nextWeek',
-        nextMonth: 'nextMonth',
+  schema = {
+    tags: ["ToDo"],
+    summary: "Get a single ToDo",
+    request: {
+      params: z.object({
+        id: z.number(),
       }),
-    }),
-    responses: {
-      '200': {
-        description: 'example',
-        schema: {
-          todo: {
-            lorem: String,
-            ipsum: String,
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              title: z.string(),
+              description: z.string(), //.optional(),
+              type: z.enum(["nextWeek", "nextMonth"]),
+            }),
           },
         },
       },
     },
-  }
+    responses: {
+      "200": {
+        description: "example",
+        content: {
+          "application/json": {
+            schema: {
+              todo: {
+                lorem: String,
+                ipsum: String,
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 
-  async handle(request: Request, env: any, context: any, data: any) {
+  async handle(_request: Request, _env: any, _context: any) {
     return {
       todo: {
-        lorem: 'lorem',
-        ipsum: 'ipsum',
+        lorem: "lorem",
+        ipsum: "ipsum",
       },
-    }
+    };
   }
 }
 
-zodRouter.put('/todo/:id', ToDoGet)
+zodRouter.put("/todo/:id", ToDoGet);
 
-describe('zod validations', () => {
-  it('simpleSuccessfulCall', async () => {
-    const request = await zodRouter.handle(
-      buildRequest({ method: 'PUT', path: `/todo/1` })
-    )
+describe("zod validations", () => {
+  it("simpleSuccessfulCall", async () => {
+    const request = await zodRouter.fetch(buildRequest({ method: "PUT", path: "/todo/1" }));
 
-    const resp = await request.json()
+    const resp = await request.json();
 
-    expect(request.status).toEqual(200)
+    expect(request.status).toEqual(200);
     expect(resp).toEqual({
       todo: {
-        lorem: 'lorem',
-        ipsum: 'ipsum',
+        lorem: "lorem",
+        ipsum: "ipsum",
       },
-    })
-  })
-})
+    });
+  });
+});

@@ -1,18 +1,10 @@
 export function jsonResp(data: any, params?: object): Response {
   return new Response(JSON.stringify(data), {
     headers: {
-      'content-type': 'application/json;charset=UTF-8',
+      "content-type": "application/json;charset=UTF-8",
     },
-    // @ts-ignore
+    // @ts-expect-error
     status: params?.status ? params.status : 200,
     ...params,
-  })
-}
-
-export class RequestBody {
-  public $customRequestBody = true
-  public content: any
-  constructor(content: any) {
-    this.content = content
-  }
+  });
 }

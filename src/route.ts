@@ -1,174 +1,118 @@
-import { OpenAPIRouteSchema, RouteOptions, RouteValidated } from './types'
-import { extractQueryParameters } from './parameters'
-import { z, ZodObject, ZodType } from 'zod'
-import { isAnyZodType, legacyTypeIntoZod } from './zod/utils'
-import { RouteConfig } from '@asteasolutions/zod-to-openapi'
-import { jsonResp } from './utils'
-import { IRequest } from 'itty-router'
+import { extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
+import { z } from "zod";
+import type { ApiException } from "./exceptions";
+import { coerceInputs } from "./parameters";
+import type { AnyZodObject, OpenAPIRouteSchema, RouteOptions, ValidatedData } from "./types";
+import { jsonResp } from "./utils";
 
-export class OpenAPIRoute<I = IRequest, A extends any[] = any[]> {
-  handle(request: I, ...args: A): any {
-    throw new Error('Method not implemented.')
+extendZodWithOpenApi(z);
+
+export class OpenAPIRoute<HandleArgs extends Array<object> = any> {
+  handle(..._args: any[]): Response | Promise<Response> | object | Promise<object> {
+    throw new Error("Method not implemented.");
   }
 
-  static isRoute = true
+  static isRoute = true;
 
-  static schema: OpenAPIRouteSchema
-  params: RouteOptions
+  args: HandleArgs; // Args the execute() was called with
+  validatedData: any = undefined; // this acts as a cache, in case the users calls the validate method twice
+  unvalidatedData: any = undefined; // stores raw request data before Zod applies defaults/transformations
+  params: RouteOptions;
+  schema: OpenAPIRouteSchema = {};
 
   constructor(params: RouteOptions) {
-    this.params = params
+    this.params = params;
+    this.args = [] as any;
   }
 
-  static getSchema(): OpenAPIRouteSchema {
-    return this.schema
+  async getValidatedData<S = any>(): Promise<ValidatedData<S>> {
+    const request = this.params.router.getRequest(this.args);
+
+    if (this.validatedData !== undefined) return this.validatedData;
+
+    const data = await this.validateRequest(request);
+
+    this.validatedData = data;
+    return data;
   }
 
-  schema(): OpenAPIRouteSchema {
-    // @ts-ignore
-    return this.__proto__.constructor.schema
+  async getUnvalidatedData(): Promise<any> {
+    if (this.unvalidatedData !== undefined) return this.unvalidatedData;
+
+    const request = this.params.router.getRequest(this.args);
+    const schema: OpenAPIRouteSchema = this.getSchemaZod();
+    const unvalidatedData: any = {};
+
+    if (schema.request?.params) {
+      unvalidatedData.params = coerceInputs(this.params.router.getUrlParams(this.args), schema.request?.params);
+    }
+    if (schema.request?.query) {
+      unvalidatedData.query = {};
+    }
+
+    if (schema.request?.headers) {
+      unvalidatedData.headers = {};
+    }
+
+    const { searchParams } = new URL(request.url);
+    const queryParams = coerceInputs(searchParams, schema.request?.query);
+    if (queryParams !== null) unvalidatedData.query = queryParams;
+
+    if (schema.request?.headers) {
+      const tmpHeaders: Record<string, any> = {};
+
+      const rHeaders = new Headers(request.headers);
+      for (const header of Object.keys((schema.request?.headers as AnyZodObject).shape)) {
+        tmpHeaders[header] = rHeaders.get(header);
+      }
+
+      unvalidatedData.headers = coerceInputs(tmpHeaders, schema.request?.headers as AnyZodObject);
+    }
+
+    if (
+      request.method.toLowerCase() !== "get" &&
+      schema.request?.body &&
+      schema.request?.body.content["application/json"] &&
+      schema.request?.body.content["application/json"].schema
+    ) {
+      try {
+        unvalidatedData.body = await request.json();
+      } catch (_e) {
+        unvalidatedData.body = {};
+      }
+    }
+
+    this.unvalidatedData = unvalidatedData;
+    return unvalidatedData;
   }
 
   getSchema(): OpenAPIRouteSchema {
-    // @ts-ignore
-    return this.__proto__.constructor.getSchema()
+    // Use this function to overwrite schema properties
+    return this.schema;
   }
 
-  getSchemaZod(): RouteConfig {
-    // @ts-ignore
-    return this.__proto__.constructor.getSchemaZod()
-  }
-
-  static getSchemaZod(): RouteConfig {
+  getSchemaZod(): OpenAPIRouteSchema {
     // Deep copy
-    const schema = { ...this.getSchema() }
-
-    let parameters: any = {}
-    let requestBody: any = schema.requestBody as any
-    const responses: any = {}
-    const customProperties: any = {}
-
-    if (requestBody && requestBody.$customRequestBody) {
-      customProperties.requestBody = requestBody.content
-    } else if (requestBody) {
-      if (!isAnyZodType(requestBody)) {
-        requestBody = legacyTypeIntoZod(requestBody)
-      }
-
-      requestBody = {
-        content: {
-          'application/json': {
-            schema: requestBody,
-          },
-        },
-      }
-
-      parameters.body = requestBody
-    }
+    const schema = { ...this.getSchema() };
 
     if (!schema.responses) {
       // No response was provided in the schema, default to a blank one
       schema.responses = {
-        '200': {
-          description: 'Successfull response',
-          schema: {},
-        },
-      }
-    }
-
-    for (const [key, value] of Object.entries(schema.responses)) {
-      if (value.content) {
-        for (const [contentType, contentObject] of Object.entries(
-          value.content
-        )) {
-          if (!isAnyZodType(contentObject.schema)) {
-            value.content[contentType].schema = legacyTypeIntoZod(
-              contentObject.schema
-            )
-          }
-        }
-
-        if (value.schema) {
-          // If content is defined, response cannot have schema
-          delete value.schema
-        }
-      } else if (value.schema) {
-        let responseSchema: object = (value.schema as object) || {}
-
-        if (!isAnyZodType(responseSchema)) {
-          responseSchema = legacyTypeIntoZod(responseSchema)
-        }
-
-        const contentType = value.contentType || 'application/json'
-
-        value.content = {
-          [contentType]: {
-            schema: responseSchema as ZodType,
+        "200": {
+          description: "Successful response",
+          content: {
+            "application/json": {
+              schema: {},
+            },
           },
-        }
-
-        delete value.schema
-        if (value.contentType) {
-          delete value.contentType
-        }
-      }
-
-      if (value.headers && !isAnyZodType(value.headers)) {
-        value.headers = legacyTypeIntoZod(value.headers) as ZodObject<any>
-      }
-
-      responses[key] = value
+        },
+      };
     }
 
-    if (schema.parameters) {
-      let values = schema.parameters
-      const _params: any = {}
-
-      // Convert parameter array into object
-      if (Array.isArray(values)) {
-        values = values.reduce(
-          // @ts-ignore
-          (obj, item) => Object.assign(obj, { [item.name]: item }),
-          {}
-        )
-      }
-
-      for (const [key, value] of Object.entries(values as Record<any, any>)) {
-        if (!_params[value.location]) {
-          _params[value.location] = {}
-        }
-
-        _params[value.location][key] = value.type
-      }
-
-      for (const [key, value] of Object.entries(_params)) {
-        _params[key] = z.object(value as any)
-      }
-
-      parameters = {
-        ...parameters,
-        ..._params,
-      }
-    }
-
-    delete schema.requestBody
-    delete schema.parameters
-    // @ts-ignore
-    delete schema.responses
-
-    // Deep copy
-    //@ts-ignore
-    return {
-      ...schema,
-      request: {
-        ...parameters,
-      },
-      responses: responses,
-      ...customProperties,
-    }
+    return schema;
   }
 
-  handleValidationError(errors: Record<string, any>): Response {
+  handleValidationError(errors: z.ZodIssue[]): Response {
     return jsonResp(
       {
         errors: errors,
@@ -177,107 +121,95 @@ export class OpenAPIRoute<I = IRequest, A extends any[] = any[]> {
       },
       {
         status: 400,
+      },
+    );
+
+    // In the future, errors will be handled as exceptions
+    // Errors caught here are always validation errors
+    // const updatedError: Array<object> = errors.map((err) => {
+    // 	// @ts-expect-error
+    // 	if ((err as ApiException).buildResponse) {
+    // 		// Error is already an internal exception
+    // 		return err;
+    // 	}
+    // 	return new InputValidationException(err.message, err.path);
+    // });
+    //
+    // throw new MultiException(updatedError as Array<ApiException>);
+  }
+
+  async execute(...args: HandleArgs) {
+    this.validatedData = undefined;
+    this.unvalidatedData = undefined;
+    this.args = args;
+
+    let resp;
+    try {
+      resp = await this.handle(...args);
+    } catch (e) {
+      if (e instanceof z.ZodError) {
+        return this.handleValidationError(e.issues);
       }
-    )
-  }
 
-  async execute(...args: any[]) {
-    const { data, errors } = await this.validateRequest(args[0])
+      // Handle ApiException
+      if ((e as ApiException).buildResponse) {
+        const apiError = e as ApiException;
+        return jsonResp(
+          {
+            success: false,
+            errors: apiError.buildResponse(),
+          },
+          {
+            status: apiError.status,
+          },
+        );
+      }
 
-    if (errors) {
-      return this.handleValidationError(errors)
+      throw e;
     }
 
-    args.push(data)
-
-    // @ts-ignore
-    const resp = await this.handle(...args)
-
-    if (!(resp instanceof Response) && typeof resp === 'object') {
-      return jsonResp(resp)
+    if (!(resp instanceof Response) && typeof resp === "object") {
+      return jsonResp(resp);
     }
 
-    return resp
+    return resp;
   }
 
-  extractQueryParameters(
-    request: Request,
-    schema?: ZodObject<any>
-  ): Record<string, any> | null {
-    return extractQueryParameters(request, schema)
-  }
+  async validateRequest(request: Request) {
+    const schema: OpenAPIRouteSchema = this.getSchemaZod();
 
-  async validateRequest(request: Request): Promise<RouteValidated> {
-    // @ts-ignore
-    const schema: RouteConfig = this.__proto__.constructor.getSchemaZod()
-    const unvalidatedData: any = {}
+    // Get unvalidated data (this also stores it in this.unvalidatedData)
+    const unvalidatedData = await this.getUnvalidatedData();
 
-    const rawSchema: any = {}
+    const rawSchema: any = {};
     if (schema.request?.params) {
-      rawSchema['params'] = schema.request?.params
-      // @ts-ignore
-      unvalidatedData['params'] = request.params
+      rawSchema.params = schema.request?.params;
     }
     if (schema.request?.query) {
-      rawSchema['query'] = schema.request?.query
-      unvalidatedData['query'] = {}
-    }
-    if (schema.request?.headers) {
-      rawSchema['headers'] = schema.request?.headers
-      unvalidatedData['headers'] = {}
+      rawSchema.query = schema.request?.query;
     }
 
-    const queryParams = this.extractQueryParameters(
-      request,
-      schema.request?.query
-    )
-    if (queryParams) unvalidatedData['query'] = queryParams
-
     if (schema.request?.headers) {
-      unvalidatedData['headers'] = {}
-      // @ts-ignore
-      for (const header of Object.keys(schema.request?.headers.shape)) {
-        // @ts-ignore
-        unvalidatedData.headers[header] = request.headers.get(header)
-      }
+      rawSchema.headers = schema.request?.headers;
     }
 
     if (
-      request.method.toLowerCase() !== 'get' &&
+      request.method.toLowerCase() !== "get" &&
       schema.request?.body &&
-      schema.request?.body.content['application/json'] &&
-      schema.request?.body.content['application/json'].schema
+      schema.request?.body.content["application/json"] &&
+      schema.request?.body.content["application/json"].schema
     ) {
-      rawSchema['body'] = schema.request.body.content['application/json'].schema
-
-      try {
-        unvalidatedData['body'] = await request.json()
-      } catch (e) {
-        unvalidatedData['body'] = {}
-      }
+      rawSchema.body = schema.request.body.content["application/json"].schema;
     }
 
-    if (this.params?.skipValidation === true) {
-      return {
-        data: unvalidatedData,
-        errors: undefined,
-      }
+    let validationSchema: any;
+
+    if (this.params?.raiseUnknownParameters === undefined || this.params?.raiseUnknownParameters === true) {
+      validationSchema = z.strictObject(rawSchema);
+    } else {
+      validationSchema = z.object(rawSchema);
     }
 
-    let validationSchema: any = z.object(rawSchema)
-
-    if (
-      this.params?.raiseUnknownParameters === undefined ||
-      this.params?.raiseUnknownParameters === true
-    ) {
-      validationSchema = validationSchema.strict()
-    }
-
-    const validatedData = validationSchema.safeParse(unvalidatedData)
-
-    return {
-      data: validatedData.success ? validatedData.data : undefined,
-      errors: !validatedData.success ? validatedData.error.issues : undefined,
-    }
+    return await validationSchema.parseAsync(unvalidatedData);
   }
 }
